@@ -1,0 +1,163 @@
+AR      = arm-none-eabi-ar
+CC      = arm-none-eabi-gcc
+LD      = arm-none-eabi-gcc
+SIZE    = arm-none-eabi-size
+OBJCOPY = arm-none-eabi-objcopy
+
+BINDIR  = build
+OBJDIR  = build/obj
+LIBDIR  = build/lib
+DEPDIR  = build/dep
+
+#
+# Common flags passed to the compiler
+#
+COMMON = -mcpu=$(CPU)           \
+         -mtune=$(CPU)          \
+         -D${PART}              \
+         -DUSE_FULL_LL_DRIVER   \
+         -mthumb                \
+         -fno-builtin           \
+         -fno-strict-aliasing   \
+         -ffreestanding         \
+         -ffunction-sections    \
+         -fdata-sections        \
+         -Wall                  \
+         -ggdb                  \
+         -Os
+
+#
+# Includes
+#
+COMMON += $(patsubst %,-I%,$(IPATH))
+
+#
+# Dependencies
+#
+COMMON += -Wp,-MM,-MP,-MT,$(@),-MF,$(DEPDIR)/$(*F).d
+
+#
+# The flags passed to the assembler
+#
+ASFLAGS = $(COMMON)
+
+#
+# The C flags passed to the compiler
+#
+CFLAGS = $(COMMON)  \
+         -std=gnu99
+
+#
+# The C++ flags passed to the compiler
+#
+CPPFLAGS = $(COMMON)       \
+           -std=gnu++98    \
+           -fno-rtti       \
+           -fno-exceptions
+
+#
+# The flags passed to the linker
+#
+LDFLAGS  = $(COMMON)        \
+           -nostartfiles    \
+           -Wl,-gc-sections \
+           -T scatter.ld
+
+#
+# Default make rule.
+#
+all: $(TARGETS) size
+
+#
+# The rule to clean out all the build products.
+#
+clean:
+	@rm -rf $(BINDIR)
+
+#
+# The rule to flash application to target
+#
+flash: $(BINDIR)/$(PROJECT).hex
+	@openocd -f openocd.cfg -c "program $(<) verify reset exit"
+
+#
+# The rule to get size of firmware
+#
+size:
+	@$(foreach out,$(^),                                                           \
+		$(eval sizeout=$(shell $(SIZE) $(out) | tail -1))                          \
+		echo "-----------------------------------";                                \
+		echo "  SIZE  $(out)";                                                     \
+		echo "  ROM   $$(($(word 1, $(sizeout)) + $(word 2, $(sizeout)))) Bytes";  \
+		echo "  RAM   $$(($(word 3, $(sizeout)) + $(word 2, $(sizeout)))) Bytes";) \
+		echo "-----------------------------------";
+
+#
+# The rules to make the directories.
+#
+$(BINDIR):
+	@mkdir -p $(@)
+$(OBJDIR):
+	@mkdir -p $(@)
+$(LIBDIR):
+	@mkdir -p $(@)
+$(DEPDIR):
+	@mkdir -p $(@)
+
+#
+# The rule for building the object file from each C source file.
+#
+$(OBJDIR)/%.o: %.c | $(DEPDIR) $(OBJDIR)
+	@echo "  CC    $(<)"
+	@$(CC) $(CFLAGS) -c $(<) -o $(@)
+
+#
+# The rule for building the object file from each C++ source file.
+#
+$(OBJDIR)/%.o: %.cpp | $(DEPDIR) $(OBJDIR)
+	@echo "  CPP   $(<)"
+	@$(CC) $(CPPFLAGS) -c $(<) -o $(@)
+
+#
+# The rule for building the object file from each assembly source file.
+#
+$(OBJDIR)/%.o: %.s | $(DEPDIR) $(OBJDIR)
+	@echo "  AS    $(<)"
+	@$(CC) $(ASFLAGS) -c $(<) -o $(@)
+
+#
+# The rule for creating an object library.
+#
+$(LIBDIR)/%.a: | $(LIBDIR)
+	@echo "  AR    $(@)"
+	@$(AR) -cr $(@) $(filter %.o, $(^))
+
+#
+# The rule for linking the application (ELF).
+#
+$(BINDIR)/%.elf: | $(BINDIR)
+	@echo "  LD    $(@)"
+	@$(LD) $(LDFLAGS) -o $(@) $(filter %.o %.a, $(^))
+
+#
+# The rule for make the binary file from elf.
+#
+$(BINDIR)/%.bin: $(BINDIR)/%.elf | $(BINDIR)
+	@echo "  LD    $(@)"
+	@$(OBJCOPY) -O binary $(<) $(@)
+
+#
+# The rule for make the hex file from elf.
+#
+$(BINDIR)/%.hex: $(BINDIR)/%.elf | $(BINDIR)
+	@echo "  LD    $(@)"
+	@$(OBJCOPY) -O ihex $(<) $(@)
+
+#
+# Include the automatically generated dependency files.
+#
+ifneq ($(MAKECMDGOALS),clean)
+include $(wildcard $(DEPDIR)/*.d)
+endif
+
+.PHONY: all clean flash size
