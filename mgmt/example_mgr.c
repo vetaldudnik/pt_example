@@ -34,16 +34,20 @@
 
 #include "example_mgr.h"
 
-static u08 data[256];
+static bool shutdown;
+static u08 uart_data[256];
+
+static u08 i2c_data[] =
+{
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+};
 
 static
 pt_status_t example_mgr_proc()
 {
-	static u08 i2c_data[10] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
-
 	u08 i2c_slave_addr = 0x15;
-	u08 i2c_reg = 0x55;
 	i2c_status_t i2c_status;
+	u08 i2c_reg = 0x55;
 	int recvd;
 
 	//
@@ -51,31 +55,50 @@ pt_status_t example_mgr_proc()
 	//
 	PT_ENTER();
 
-	for(;;)
+	//
+	// Perform full flash erase
+	//
+	PT_WAIT_FOR(spi_flash_whole_erase());
+
+	//
+	// Run until shutdown
+	//
+	while(!shutdown)
 	{
-		PT_WAIT_FOR(spi_flash_whole_erase());
+		PT_WAIT_FOR(uart3_recv(uart_data, sizeof(uart_data), &recvd, MS(1000)));
 
-		PT_WAIT_FOR(uart3_recv(data, sizeof(data), &recvd, MS(1000)));
-
-		PT_WAIT_FOR(spi_flash_data_write(0x1000, data, sizeof(data)));
-
-		PT_WAIT_FOR(i2c_write(i2c_slave_addr, &i2c_reg, sizeof(i2c_reg), i2c_data, sizeof(i2c_data), &i2c_status));
-
-		if(i2c_status == I2C_STATUS_OK)
+		if(recvd == sizeof(uart_data))
 		{
-			PT_WAIT_FOR(i2c_read(i2c_slave_addr, &i2c_reg, sizeof(i2c_reg), i2c_data, sizeof(i2c_data), &i2c_status));
+			PT_WAIT_FOR(spi_flash_data_write(0x1000, uart_data, sizeof(uart_data)));
 
-			PT_WAIT_FOR(spi_flash_data_write(0x2000, i2c_data, sizeof(i2c_data)));
+			PT_WAIT_FOR(i2c_write(i2c_slave_addr, &i2c_reg, sizeof(i2c_reg), i2c_data, sizeof(i2c_data), &i2c_status));
+
+			if(i2c_status == I2C_STATUS_OK)
+			{
+				PT_WAIT_FOR(i2c_read(i2c_slave_addr, &i2c_reg, sizeof(i2c_reg), i2c_data, sizeof(i2c_data), &i2c_status));
+
+				if(i2c_status == I2C_STATUS_OK)
+				{
+					PT_WAIT_FOR(spi_flash_data_write(0x2000, i2c_data, sizeof(i2c_data)));
+
+					goto complete;
+				}
+			}
 		}
 
-
 		//
-		// PT_YIELD() can be absent if any PT_WAIT_FOR() present above
+		// PT_YIELD() must be present at the end of infinity loop if none PT_WAIT_FOR() present above
 		//
 //		PT_YIELD();
 	}
 
+complete:
 	PT_EXIT();
+}
+
+void example_mgr_shutdown()
+{
+	shutdown = 1;
 }
 
 void example_mgr_init()

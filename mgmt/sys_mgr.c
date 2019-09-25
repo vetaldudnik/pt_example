@@ -170,7 +170,7 @@ shutdown:
 	//
 	// Perform system shutdown
 	//
-//	batt_mgr_shutdown();
+	example_mgr_shutdown();
 
 	//
 	// Wait time for shutdown

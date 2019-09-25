@@ -29,6 +29,7 @@
 #ifndef EXAMPLE_MGR_H_
 #define EXAMPLE_MGR_H_
 
+void example_mgr_shutdown();
 void example_mgr_init();
 
 #endif /* EXAMPLE_MGR_H_ */
